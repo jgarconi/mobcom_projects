@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 
+# TODO: update plots to exclude the LOS component if K_R = 0
+
 class PlotChannelModel:
     def __init__(self, channel_model):
         self.channel_model = channel_model
@@ -19,7 +21,7 @@ class PlotChannelModel:
         plt.yscale('log')
         plt.title(f'Power Delay Profile (PDP) - {channel.scenario}')
         plt.xlabel('Delay (μs)')
-        plt.ylabel('Normalized Power (α_n²)')
+        plt.ylabel('Normalized Power (αn²)')
         plt.grid(True, which="both", ls="--", alpha=0.5)
         plt.show()
 
@@ -30,18 +32,21 @@ class PlotChannelModel:
             plt.title(f'Multipath Azimuth Angles vs Power - {channel.scenario}')
             if channel.kr_factor[0] > 0:
                 plt.stem(channel.multipath_azimuth_angles[0], channel.multipath_powers[0], linefmt='b-', markerfmt='b^', basefmt=' ')
-            plt.xlabel('Azimuth Angle (rad)')
-            plt.ylabel('Normalized Power (α_n²)')
+            plt.xlabel('Azimuth Angle (°)')
+            plt.ylabel('Normalized Power (αn²)')
             plt.yscale('log')
             plt.grid(True, which="both", ls="--", alpha=0.5)
             plt.show()
 
         # Plot Elevation Angles vs Power if available
-        # if hasattr(channel, 'multipath_elevation_angles') and channel.multipath_elevation_angles is not None:
-        #     plt.figure(figsize=(10, 6))
-        #     plt.scatter(channel.multipath_powers, channel.multipath_elevation_angles, c='r', marker='o')
-        #     plt.title(f'Multipath Elevation Angles vs Power - {channel.scenario}')
-        #     plt.xlabel('Normalized Power (α_n²)')
-        #     plt.ylabel('Elevation Angle (rad)')
-        #     plt.grid(True, which="both", ls="--", alpha=0.5)
-        #     plt.show()
+        if hasattr(channel, 'multipath_elevation_angles') and channel.multipath_elevation_angles is not None:
+            plt.figure(figsize=(10, 6))
+            plt.stem(channel.multipath_elevation_angles, channel.multipath_powers, linefmt='k-', markerfmt='k^', basefmt=' ')
+            plt.title(f'Multipath Elevation Angles vs Power - {channel.scenario}')
+            if channel.kr_factor[0] > 0:
+                plt.stem(channel.multipath_elevation_angles[0], channel.multipath_powers[0], linefmt='b-', markerfmt='b^', basefmt=' ')
+            plt.xlabel('Elevation Angle (°)')
+            plt.ylabel('Normalized Power (αn²)')
+            plt.yscale('log')
+            plt.grid(True, which="both", ls="--", alpha=0.5)
+            plt.show()
