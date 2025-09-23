@@ -1,7 +1,7 @@
 import numpy as np
-import matplotlib.pyplot as plt
+from plot_distributions import PlotChannelModel
 
-class Canal3GPP:
+class Channel3GPP:
     def __init__(self, scenario: str, frequency_ghz: float, n_paths: int):
         """
         Initializes the channel object with the basic simulation parameters.
@@ -46,15 +46,54 @@ class Canal3GPP:
             self.mean_sigma_phi = - 0.1 * np.log10(1 + self.frequency_ghz) + 0.73
             self.std_dev_sigma_phi = - 0.04 * np.log10(1 + self.frequency_ghz) + 0.34
 
-        # ... (other scenarios here, identical logic as before)
-        # elif self.scenario == "umi_nlos":
-        #     self.mean_tau = -0.24 * np.log10(1 + self.frequency_ghz) - 6.83
-        #     self.std_tau = -0.16 * np.log10(1 + self.frequency_ghz) + 0.28
-        #     self.r_tau = 2.1
-        #     self.std_dev_sigma_xi = 7.82
-        #     self.mean_kr = 0
-        #     self.std_dev_kr = 0
-        # Add other UMa scenarios here for completeness
+        elif self.scenario == "umi_nlos":
+            # delay spread statistics (στ) [log]
+            self.mean_tau = -0.24 * np.log10(1 + self.frequency_ghz) - 6.83
+            self.std_tau = -0.16 * np.log10(1 + self.frequency_ghz) + 0.28
+            self.r_tau = 2.1
+            # shadowing statistics (σξ) [dB]
+            self.std_dev_sigma_xi = 7.82
+            self.mean_kr = 0
+            self.std_dev_kr = 0
+            # azimuth angle spread statistics (σθ) [log]
+            self.mean_sigma_theta = - 0.08 * np.log10(1 + self.frequency_ghz) + 1.81
+            self.std_dev_sigma_theta = 0.05 * np.log10(1 + self.frequency_ghz) + 0.3
+            # elevation angle spread statistics (σφ) [log]
+            self.mean_sigma_phi = - 0.04 * np.log10(1 + self.frequency_ghz) + 0.92
+            self.std_dev_sigma_phi = - 0.07 * np.log10(1 + self.frequency_ghz) + 0.41
+
+        elif self.scenario == "uma_los":
+            # delay spread statistics (στ) [log]
+            self.mean_tau = -0.0963 * np.log10(1 + self.frequency_ghz) - 6.955
+            self.std_tau = 0.66
+            self.r_tau = 2.5
+            # shadowing statistics (σξ) [dB]
+            self.std_dev_sigma_xi = 4
+            self.mean_kr = 9
+            self.std_dev_kr = 3.5
+            # azimuth angle spread statistics (σθ) [log]
+            self.mean_sigma_theta = 1.81
+            self.std_dev_sigma_theta = 0.2
+            # elevation angle spread statistics (σφ) [log]
+            self.mean_sigma_phi = 0.95
+            self.std_dev_sigma_phi = -0.16
+
+        elif self.scenario == "uma_nlos":
+            # delay spread statistics (στ) [log]
+            self.mean_tau = -0.204 * np.log10(1 + self.frequency_ghz) - 6.28
+            self.std_tau = 0.39
+            self.r_tau = 2.3
+            # shadowing statistics (σξ) [dB]
+            self.std_dev_sigma_xi = 6
+            self.mean_kr = 0
+            self.std_dev_kr = 0
+            # azimuth angle spread statistics (σθ) [log]
+            self.mean_sigma_theta = - 0.27 * np.log10(self.frequency_ghz) + 2.08
+            self.std_dev_sigma_theta = 0.11
+            # elevation angle spread statistics (σφ) [log]
+            self.mean_sigma_phi = - 0.3236 * np.log10(self.frequency_ghz) + 1.512
+            self.std_dev_sigma_phi = 0.16
+
 
     def generate_channel(self):
         """
@@ -75,47 +114,6 @@ class Canal3GPP:
         print(f"    - Delay Spread (σ_τ): {self.sigma_tau[0]*1e9:.2f} ns")
         print(f"    - Rice Factor (K_R): {self.kr_factor[0]:.2f} (linear)")
         print(f"    - Total Power: {self.multipath_powers[0]:.4f}")
-
-    def plot_pdp(self):
-        """Plots all available multipath profiles: powers, azimuth angles, and elevation angles (if available)."""
-        if self.multipath_powers is None:
-            print("Run the 'generate_channel()' method first.")
-            return
-
-        # Plot Power Delay Profile (PDP)
-        plt.figure(figsize=(10, 6))
-        plt.stem(self.multipath_delays * 1e6, self.multipath_powers, linefmt='k-', markerfmt='k^', basefmt=' ')
-        if self.kr_factor[0] > 0:
-            plt.stem(self.multipath_delays[0] * 1e6, self.multipath_powers[0], linefmt='b-', markerfmt='b^', basefmt=' ')
-        plt.yscale('log')
-        plt.title(f'Power Delay Profile (PDP) - {self.scenario}')
-        plt.xlabel('Delay (μs)')
-        plt.ylabel('Normalized Power (α_n²)')
-        plt.grid(True, which="both", ls="--", alpha=0.5)
-        plt.show()
-
-        # Plot Azimuth Angles vs Power if available
-        if hasattr(self, 'multipath_azimuth_angles') and self.multipath_azimuth_angles is not None:
-            plt.figure(figsize=(10, 6))
-            plt.stem(self.multipath_azimuth_angles, self.multipath_powers, linefmt='k-', markerfmt='k^', basefmt=' ')
-            plt.title(f'Multipath Azimuth Angles vs Power - {self.scenario}')
-            if self.kr_factor[0] > 0:
-                plt.stem(self.multipath_delays[0] * 1e6, self.multipath_powers[0], linefmt='b-', markerfmt='b^', basefmt=' ')
-            plt.xlabel('Azimuth Angle (rad)')
-            plt.ylabel('Normalized Power (α_n²)')
-            plt.yscale('log')
-            plt.grid(True, which="both", ls="--", alpha=0.5)
-            plt.show()
-
-        # Plot Elevation Angles vs Power if available
-        if hasattr(self, 'multipath_elevation_angles') and self.multipath_elevation_angles is not None:
-            plt.figure(figsize=(10, 6))
-            plt.scatter(self.multipath_powers, self.multipath_elevation_angles, c='r', marker='o')
-            plt.title(f'Multipath Elevation Angles vs Power - {self.scenario}')
-            plt.xlabel('Normalized Power (α_n²)')
-            plt.ylabel('Elevation Angle (rad)')
-            plt.grid(True, which="both", ls="--", alpha=0.5)
-            plt.show()
 
     def _generate_gaussian_distribution(self, mean: float, std_dev: float, size: int, scale: str) -> np.ndarray:
         g = np.random.normal(mean, std_dev, size)
@@ -171,6 +169,7 @@ class Canal3GPP:
 
 if __name__ == '__main__':
     # The main code is much cleaner and more semantic
-    my_channel = Canal3GPP(scenario="umi_los", frequency_ghz=3, n_paths=100)
+    my_channel = Channel3GPP(scenario="umi_los", frequency_ghz=3, n_paths=100)
     my_channel.generate_channel()
-    my_channel.plot_pdp()
+    plot = PlotChannelModel(my_channel)
+    plot.plot_pdp()
