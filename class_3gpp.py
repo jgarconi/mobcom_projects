@@ -182,3 +182,15 @@ class Channel3GPP:
             final_phi = final_phi - initial_phi[0] + mean_phi
         return final_phi * (180 / np.pi)  # Convert to degrees for output
 
+    def _calculate_arrival_directions(self):
+        azimuth_rad = np.deg2rad(self.multipath_azimuth_angles)
+        elevation_rad = np.deg2rad(self.multipath_elevation_angles)
+
+        x = np.cos(azimuth_rad) * np.sin(elevation_rad)
+        y = np.sin(azimuth_rad) * np.sin(elevation_rad)
+        z = np.cos(elevation_rad)
+
+        return np.array([x, y, z])
+
+# if __name__ == '__main__':
+# TODO: create unit tests for all functions
