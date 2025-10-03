@@ -2,8 +2,16 @@ import numpy as np
 import random
 # from plot_distributions import PlotChannelModel
 
+LIGHT_SPEED = 299792458 #m/s
+
 class Channel3GPP:
-    def __init__(self, scenario: str, frequency_ghz: float, n_paths: int):
+    def __init__(self, 
+             scenario: str, 
+             frequency_ghz: float, 
+             n_paths: int, 
+             rx_velocity_mps: float, 
+             rx_azimuth_deg: float = 90.0, 
+             rx_elevation_deg: float = 0.0):
         """
         Initializes the channel object with the basic simulation parameters.
         """
@@ -13,6 +21,9 @@ class Channel3GPP:
         self.scenario = scenario
         self.frequency_ghz = frequency_ghz
         self.n_paths = n_paths
+        self.rx_velocity_mps = rx_velocity_mps
+        self.rx_azimuth_deg = rx_azimuth_deg
+        self.rx_elevation_deg = rx_elevation_deg
 
         # Attributes to be calculated during the simulation
         # Large-scale parameters
@@ -24,6 +35,8 @@ class Channel3GPP:
         self.multipath_powers = None
         self.multipath_azimuth_angles = None
         self.multipath_elevation_angles = None
+
+        self.arrival_directions = None
 
         # Define statistical parameters based on the scenario
         self._define_statistical_parameters()
@@ -46,6 +59,8 @@ class Channel3GPP:
         self.multipath_powers = self._calculate_multipath_powers()
         self.multipath_azimuth_angles = self._calculate_multipath_azimuth_angles()
         self.multipath_elevation_angles = self._calculate_multipath_elevation_angles()
+
+        self.doppler_shifts = self._calculate_doppler_shift()
 
         print(f"--> Channel realization generated successfully.")
         print(f"    - Delay Spread (σ_τ): {self.sigma_tau[0]*1e9:.2f} ns")
@@ -190,7 +205,43 @@ class Channel3GPP:
         y = np.sin(azimuth_rad) * np.sin(elevation_rad)
         z = np.cos(elevation_rad)
 
+        #TODO: garantir que estas coordenadas tenham módulo = 1
+
         return np.array([x, y, z])
 
+    def _calculate_doppler_shift(self):
+        """
+        Calcula o desvio Doppler para cada percurso (multipath component).
+        """
+        # 1. Converter a frequência da portadora de GHz para Hz (fator 1e9)
+        frequency_hz = self.frequency_ghz * 1e9
+
+        # 2. Calcular o comprimento de onda (lambda = c / f)
+        wave_len = LIGHT_SPEED / frequency_hz
+
+        # 3. Obter o vetor de direção unitário do movimento do receptor
+        rx_azimuth_rad = np.deg2rad(self.rx_azimuth_deg)
+        rx_elevation_rad = np.deg2rad(self.rx_elevation_deg)
+        
+        x = np.cos(rx_azimuth_rad) * np.sin(rx_elevation_rad)
+        y = np.sin(rx_azimuth_rad) * np.sin(rx_elevation_rad)
+        z = np.cos(rx_elevation_rad)
+        rx_direction_vector = np.array([x, y, z])
+
+        # 4. Obter os vetores de direção de chegada para todos os percursos (matriz 3xN)
+        multipath_arrival_vectors = self._calculate_arrival_directions()
+
+        # 5. Calcular o termo v/lambda (componente máxima do desvio Doppler)
+        max_doppler_shift = self.rx_velocity_mps / wave_len
+        
+        # 6. Calcular o cosseno do ângulo entre a direção do receptor e cada percurso
+        # O resultado é um array com N elementos, um para cada percurso.
+        cos_angles = np.dot(rx_direction_vector, multipath_arrival_vectors)
+        
+        # 7. Calcular o desvio Doppler final para cada percurso
+        # O resultado é um array com n_paths elementos.
+        doppler_shifts = max_doppler_shift * cos_angles
+        
+        return doppler_shifts
 # if __name__ == '__main__':
 # TODO: create unit tests for all functions
