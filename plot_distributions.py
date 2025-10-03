@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.ticker as mticker
+from matplotlib.offsetbox import AnchoredText
 import numpy as np
 
 from class_3gpp import Channel3GPP
@@ -287,6 +288,51 @@ class PlotChannelModel:
         ax.grid(True)
         ax.legend()
 
+        plt.tight_layout()
+        plt.show()
+
+    def plot_doppler_spectrum(self):
+        """
+        Plota o Espectro de Potência Doppler.
+        Mostra a potência de cada percurso em função do seu desvio Doppler.
+        """
+        channel = self.channel_model
+
+        # Verifica se os dados necessários foram gerados
+        if channel.doppler_shifts is None or channel.multipath_powers is None:
+            print("Erro: Execute o método 'generate_channel()' primeiro.")
+            return
+
+        # Pega os dados para os eixos X e Y
+        doppler_shifts_hz = channel.doppler_shifts
+        powers = channel.multipath_powers
+
+        # Cria a figura
+        plt.figure(figsize=(10, 6))
+        
+        # Plota todos os percursos (estilo NLoS)
+        plt.stem(doppler_shifts_hz, powers, linefmt='k-', markerfmt='k^', basefmt=' ')
+        
+        # Se houver um componente LoS, o redesenha com uma cor diferente
+        if channel.kr_factor > 0:
+            plt.stem(doppler_shifts_hz[0], powers[0], linefmt='b-', markerfmt='b^', basefmt=' ')
+
+
+        # Configurações do gráfico
+        info_text = (
+            f'$v_{{rx}} = {channel.rx_velocity_mps:.0f}$ m/s, '
+            f'$f_c = {channel.frequency_ghz:.0f}$ GHz, '
+            f'$azimuth = {channel.rx_azimuth_deg:.0f}$°, '
+            f'$elevation = {channel.rx_elevation_deg:.0f}$°'
+        )
+
+        plt.yscale('log') # Escala logarítmica para a potência é ideal aqui
+        plt.title(f'Espectro de Potência Doppler - {channel.scenario.upper()}', fontsize=16)
+        plt.xlabel('Desvio Doppler (Hz)', fontsize=12)
+        plt.ylabel('Potência Normalizada', fontsize=12)
+        plt.grid(True, which="both", ls=":", alpha=0.3)
+        anchored_text = AnchoredText(info_text, loc="upper left", frameon=True, prop={'size': 10})
+        plt.gca().add_artist(anchored_text)
         plt.tight_layout()
         plt.show()
 
