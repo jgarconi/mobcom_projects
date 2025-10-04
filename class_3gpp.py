@@ -3,6 +3,7 @@ import random
 # from plot_distributions import PlotChannelModel
 
 LIGHT_SPEED = 299792458 #m/s
+TIME_SAMPLES = int(1e5)
 
 class Channel3GPP:
     def __init__(self, 
@@ -27,16 +28,18 @@ class Channel3GPP:
 
         # Attributes to be calculated during the simulation
         # Large-scale parameters
-        self.sigma_tau = None
-        self.kr_factor = None
-        self.sigma_theta = None
+        self.sigma_tau = None # linear [s]
+        self.kr_factor = None # linear
+        self.sigma_theta = None # linear [rad]
+        self.sigma_phi = None # linear [rad]
         # Small-scale parameters
-        self.multipath_delays = None
+        self.multipath_delays = None 
         self.multipath_powers = None
         self.multipath_azimuth_angles = None
         self.multipath_elevation_angles = None
 
         self.arrival_directions = None
+        self.phase_phi = None
 
         # Define statistical parameters based on the scenario
         self._define_statistical_parameters()
@@ -60,6 +63,7 @@ class Channel3GPP:
         self.multipath_azimuth_angles = self._calculate_multipath_azimuth_angles()
         self.multipath_elevation_angles = self._calculate_multipath_elevation_angles()
 
+        self.arrival_directions = self._calculate_arrival_directions()
         self.doppler_shifts = self._calculate_doppler_shift()
 
         print(f"--> Channel realization generated successfully.")
@@ -147,32 +151,32 @@ class Channel3GPP:
             return g
 
     def _calculate_multipath_delays(self):
-        mean_tau_n = self.r_tau * self.sigma_tau
+        mean_tau_n = self.r_tau * self.sigma_tau # linear [s]
         raw_delays = np.random.exponential(mean_tau_n, self.n_paths)
         norm_multipath_delays = raw_delays - np.min(raw_delays)
         return np.sort(norm_multipath_delays)
 
     def _calculate_multipath_powers(self):
-        xi_n = np.random.normal(0, self.std_dev_sigma_xi, self.n_paths) # db
-        preliminary_powers = np.exp(-self.multipath_delays * ((self.r_tau - 1) / (self.r_tau * self.sigma_tau))) * 10**(-xi_n / 10)
+        xi_n = self._generate_gaussian_distribution(0, self.std_dev_sigma_xi, self.n_paths) # db
+        preliminary_powers = np.exp(-self.multipath_delays * ((self.r_tau - 1) / (self.r_tau * self.sigma_tau))) * 10**(-xi_n / 10) # linear
 
-        nlos_preliminary_powers = preliminary_powers[1:]
-        total_dispersed_power = np.sum(nlos_preliminary_powers)
+        total_dispersed_power = np.sum(preliminary_powers[1:])
 
-        los_power = self.kr_factor / (self.kr_factor + 1)
+        norm_multipath_powers = (1 / (self.kr_factor + 1)) * (preliminary_powers / total_dispersed_power)
 
-        norm_dispersed_power = (1 / (self.kr_factor + 1)) * (nlos_preliminary_powers / total_dispersed_power)
+        norm_multipath_powers[0] = self.kr_factor / (self.kr_factor + 1)
 
-        multipath_powers = np.concatenate(([los_power], norm_dispersed_power))
-        return multipath_powers
+        return norm_multipath_powers # linear
 
     def _generate_initial_azimuth_angles(self):
         power_ratio = self.multipath_powers / np.max(self.multipath_powers)
-        return 1.42 * self.sigma_theta * np.sqrt(-np.log(power_ratio))
-
+        azimuth_angles_rad = 1.42 * self.sigma_theta * np.sqrt(-np.log(power_ratio))
+        return np.rad2deg(azimuth_angles_rad) # linear [deg]
+    
     def _generate_initial_elevation_angles(self):
         power_ratio = self.multipath_powers / np.max(self.multipath_powers)
-        return - self.sigma_phi * np.log(power_ratio)
+        elevation_angles_rad = - self.sigma_phi * np.log(power_ratio)
+        return np.rad2deg(elevation_angles_rad) # linear [deg]
 
     def _generate_random_signals(self):
         return np.random.choice([-1, 1], size=self.n_paths)
@@ -181,21 +185,21 @@ class Channel3GPP:
         final_theta = np.zeros(self.n_paths)
         un_signals = self._generate_random_signals()
         initial_theta = self._generate_initial_azimuth_angles()
-        yn_fluctuations = self._generate_gaussian_distribution(0, self.sigma_theta / 7, self.n_paths, "log_deg_to_linear_rad")
-        final_theta = (un_signals * initial_theta) + yn_fluctuations
+        yn_fluctuations = self._generate_gaussian_distribution(0, self.sigma_theta / 7, self.n_paths) # linear [rad]
+        final_theta = (un_signals * initial_theta) + np.rad2deg(yn_fluctuations)
         if self.scenario in {"umi_los", "uma_los"}:
             final_theta = final_theta - initial_theta[0]
-        return final_theta * (180 / np.pi)  # Convert to degrees for output
+        return final_theta # linear [deg]
     
     def _calculate_multipath_elevation_angles(self):
         un_signals = self._generate_random_signals()
         initial_phi = self._generate_initial_elevation_angles()
-        yn_fluctuations = self._generate_gaussian_distribution(0, self.sigma_phi / 7, self.n_paths, "log_deg_to_linear_rad")
-        mean_phi = np.deg2rad(45)
-        final_phi = (un_signals * initial_phi) + yn_fluctuations
+        yn_fluctuations = self._generate_gaussian_distribution(0, self.sigma_phi / 7, self.n_paths) # linear [rad]
+        mean_phi = 45
+        final_phi = (un_signals * initial_phi) + np.rad2deg(yn_fluctuations)
         if self.scenario in {"umi_los", "uma_los"}:
             final_phi = final_phi - initial_phi[0] + mean_phi
-        return final_phi * (180 / np.pi)  # Convert to degrees for output
+        return final_phi # linear [deg]
 
     def _calculate_arrival_directions(self):
         azimuth_rad = np.deg2rad(self.multipath_azimuth_angles)
@@ -229,7 +233,7 @@ class Channel3GPP:
         rx_direction_vector = np.array([x, y, z])
 
         # 4. Obter os vetores de direção de chegada para todos os percursos (matriz 3xN)
-        multipath_arrival_vectors = self._calculate_arrival_directions()
+        multipath_arrival_vectors = self.arrival_directions
 
         # 5. Calcular o termo v/lambda (componente máxima do desvio Doppler)
         max_doppler_shift = self.rx_velocity_mps / wave_len
