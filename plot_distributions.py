@@ -3,339 +3,144 @@ from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.ticker as mticker
 from matplotlib.offsetbox import AnchoredText
 import numpy as np
-
-from class_3gpp import Channel3GPP
+from channel_model import Channel3GPP
 
 class PlotChannelModel:
-    def __init__(self, channel_model):
-        self.channel_model = channel_model
+    def __init__(self, channel: Channel3GPP):
+        self.channel = channel
 
-    def plot_power_delay_profile(self):
-        """Plots all available multipath profiles: powers, azimuth angles, and elevation angles (if available)."""
-        channel = self.channel_model
-        if channel.multipath_powers is None:
-            print("Run the 'generate_channel()' method first.")
-            return
+    def _check_data(self) -> bool:
+        if self.channel.multipath_delays is None:
+            print("Erro: A realização do canal não foi gerada. Chame 'generate_channel()' primeiro.")
+            return False
+        return True
 
-        # --- Power Delay Profile (PDP) ---
-        plt.figure(figsize=(10, 6))
-        plt.stem(channel.multipath_delays * 1e6, channel.multipath_powers, linefmt='k-', markerfmt='k^', basefmt=' ')
-        if channel.kr_factor > 0:
-            plt.stem(channel.multipath_delays[0] * 1e6, channel.multipath_powers[0], linefmt='b-', markerfmt='b^', basefmt=' ')
-        plt.yscale('log')
-        plt.title(f'Power Delay Profile (PDP) - {channel.scenario}')
-        plt.xlabel('Delay (μs)')
-        plt.ylabel('Normalized Power (αn²)')
-        plt.grid(True, which="both", ls="--", alpha=0.5)
-        plt.show()
-
-    def plot_delay_spread_profile(self):
-        """
-        Plota o perfil de Espalhamento de Atraso vs. frequência, usando a própria
-        classe Channel3GPP para calcular os parâmetros do modelo.
-        """
-        # 1. Pega o nome do cenário do objeto de canal principal
-        channel = self.channel_model
-        scenario = channel.scenario
-
-        # 2. Define a faixa de frequências para o eixo X do gráfico
-        frequencies_ghz = np.logspace(np.log10(0.5), np.log10(100), 200)
-
-        # 3. Cria uma nova instância temporária de Channel3GPP para ser nossa "calculadora".
-        #    Passamos a ela o ARRAY de frequências. n_paths é irrelevante aqui.
-        params_calculator = Channel3GPP(
-            scenario=scenario,
-            frequency_ghz=frequencies_ghz,
-            n_paths=1
-        )
-
-        # 4. Agora, os atributos .mean_sigma_tau e .std_dev_sigma_tau deste objeto
-        #    são ARRAYS contendo os valores para cada frequência.
-        mean_log_s = params_calculator.mean_sigma_tau
-
-        std_dev_log_s = params_calculator.std_dev_sigma_tau
-        
-        # 5. A partir daqui, a lógica de plotagem é a mesma de antes
-        upper_bound_log_s = mean_log_s + std_dev_log_s
-        lower_bound_log_s = mean_log_s - std_dev_log_s
-
-        mean_us = (10**mean_log_s) * 1e6
-        upper_bound_us = (10**upper_bound_log_s) * 1e6
-        lower_bound_us = (10**lower_bound_log_s) * 1e6
-
-        # 6. Cria o gráfico
+    def plot_power_delay_profile(self) -> None:
+        if not self._check_data(): return
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(frequencies_ghz, mean_us, color='blue', linewidth=2, label='Média de $\sigma_\\tau$')
-        ax.fill_between(frequencies_ghz, lower_bound_us, upper_bound_us, 
-                        color='blue', alpha=0.2, label='Média ± Desvio Padrão')
         
-        # Configuração da aparência do gráfico...
-        ax.set_xscale('log')
-        ax.set_title(f'Espalhamento de Atraso para o Cenário: {scenario.upper()}', fontsize=16)
-        ax.set_xlabel('Frequência da portadora – $f_c$ (GHz)', fontsize=14)
-        ax.set_ylabel('Espalhamento de Atraso, $\sigma_\\tau$ ($\\mu$s)', fontsize=14)
-        ax.set_xlim(0.5, 100)
-        ax.set_ylim(bottom=0)
-        ax.xaxis.set_major_formatter(mticker.ScalarFormatter())
-        ax.legend(fontsize=12)
-        ax.grid(True, which='both', linestyle='--', linewidth=0.5)
-        ax.tick_params(axis='both', which='major', labelsize=12)
+        ax.stem(self.channel.multipath_delays * 1e6, self.channel.multipath_powers, linefmt='k-', markerfmt='k^', basefmt=' ', label='NLoS')
+        if self.channel.kr_factor > 0:
+            ax.stem(self.channel.multipath_delays[0] * 1e6, self.channel.multipath_powers[0], linefmt='b-', markerfmt='b^', basefmt=' ', label='LoS')
 
-        plt.tight_layout()
-        plt.show()
+        ax.set_yscale('log')
+        ax.set_title(f'Perfil de Potência e Atraso (PDP) - {self.channel.scenario.upper()}', fontsize=15)
+        ax.set_xlabel('Atraso (μs)'), ax.set_ylabel('Potência Normalizada')
+        ax.grid(True, which="both", ls="--", alpha=0.5), ax.legend()
+        plt.tight_layout(), plt.show()
 
-    def plot_elevation_angles(self):
-        """
-        Gera os gráficos (polar e cartesiano) para os ÂNGULOS DE ELEVAÇÃO.
-        """
-        print("Gerando gráfico para Ângulos de Elevação...")
-        self._plot_generic_angles(
-            angles_data=self.channel_model.multipath_elevation_angles,
-            angle_type_name="Elevação",
-            angle_type_name_lower="elevação",
-            cartesian_xlim_dynamic=True  # Limites dinâmicos para elevação
-        )
+    def plot_azimuth_spread(self) -> None:
+        if not self._check_data(): return
+        self._plot_generic_angles(self.channel.azimuth_angles, self.channel.multipath_powers, "Azimute")
 
-    def plot_azimuth_angles(self):
-        """
-        Gera os gráficos (polar e cartesiano) para os ÂNGULOS DE AZIMUTE.
-        """
-        print("Gerando gráfico para Ângulos de Azimute...")
-        self._plot_generic_angles(
-            angles_data=self.channel_model.multipath_azimuth_angles,
-            angle_type_name="Azimute",
-            angle_type_name_lower="azimute",
-            cartesian_xlim_dynamic=True
-        )
+    def plot_elevation_spread(self) -> None:
+        if not self._check_data(): return
+        self._plot_generic_angles(self.channel.elevation_angles, self.channel.multipath_powers, "Elevação")
 
-    def _plot_generic_angles(self, angles_data, angle_type_name, angle_type_name_lower, cartesian_xlim_dynamic, cartesian_xlim_range=None):
+    def _plot_generic_angles(self, angles_deg: np.ndarray, powers: np.ndarray, angle_type_name: str) -> None:
         """
-        Método genérico interno para plotar qualquer tipo de ângulo.
+        Método genérico que cria uma figura com um plot polar e um cartesiano lado a lado.
         """
-        channel = self.channel_model
+        # 1. Preparação dos Dados (agora mais simples)
+        los_angle_deg, nlos_angles_deg = angles_deg[0], angles_deg[1:]
+        los_power, nlos_powers = powers[0], powers[1:]
+        
+        los_angle_rad = np.deg2rad(los_angle_deg)
+        nlos_angles_rad = np.deg2rad(nlos_angles_deg)
+        
+        scaled_nlos_powers = np.array([])
+        if len(nlos_powers) > 0:
+            min_p, max_p = np.min(nlos_powers), np.max(nlos_powers)
+            scaled_nlos_powers = 0.4 + 0.5 * (nlos_powers - min_p) / (max_p - min_p) if max_p > min_p else np.full_like(nlos_powers, 0.6)
 
-        # --- 1. CRIAÇÃO DA FIGURA E SUBPLOTS ---
-        fig = plt.figure(figsize=(14, 6))
+        # 2. Criação da Figura e Subplots
+        fig = plt.figure(figsize=(15, 6))
         ax_polar = fig.add_subplot(1, 2, 1, projection='polar')
         ax_cartesian = fig.add_subplot(1, 2, 2)
+        fig.suptitle(f'Análise de Ângulos de {angle_type_name} - {self.channel.scenario.upper()}', fontsize=16)
 
-        # --- DADOS PARA PLOTAGEM ---
-        multipath_powers = channel.multipath_powers
-        
-        los_angle = angles_data[0]
-        los_power = multipath_powers[0]
-
-        if channel.n_paths > 1:
-            nlos_angles = angles_data[1:]
-            nlos_powers = multipath_powers[1:]
-        else:
-            nlos_angles = np.array([])
-            nlos_powers = np.array([])
-
-        # --- PLOTAGEM DO GRÁFICO POLAR (ax_polar) ---
-        ax_polar.set_title(f"Direção de Chegada ({angle_type_name})", fontsize=14)
-
-        # **
-        # ** AJUSTE AQUI: Converte os ângulos para a faixa [0, 360] para o gráfico polar **
-        # ** O operador '%' em Python lida corretamente com números negativos
-        # ** (ex: -90 % 360 se torna 270).
-        # **
-        los_angle_polar = los_angle % 360
-        nlos_angles_polar = nlos_angles % 360
-
-        if len(nlos_powers) > 0 and np.max(nlos_powers) > np.min(nlos_powers):
-            scaled_nlos_powers = 0.4 + 0.5 * (nlos_powers - np.min(nlos_powers)) / (np.max(nlos_powers) - np.min(nlos_powers))
-        elif len(nlos_powers) == 1:
-             scaled_nlos_powers = np.array([0.6])
-        else:
-            scaled_nlos_powers = np.array([])
-
-        # Usa os ângulos convertidos (nlos_angles_polar) para plotar
-        if len(nlos_angles) > 0:
-            ax_polar.stem(
-                np.deg2rad(nlos_angles_polar), scaled_nlos_powers,
-                linefmt='r-', markerfmt='ro', basefmt=' ',
-                label='NLoS'
-            )
-        
-        # Usa o ângulo convertido (los_angle_polar) para plotar
-        if channel.kr_factor > 0 and los_power > 0:
-            markerline, _, _ = ax_polar.stem(
-                [np.deg2rad(los_angle_polar)], [1.0],
-                linefmt='b-', markerfmt='bo', basefmt=' ',
-                label='LoS'
-            )
+        # 3. Plotagem do Gráfico Polar (sem alterações na lógica de plot)
+        ax_polar.set_title(f"Direção de Chegada", fontsize=14)
+        if len(nlos_angles_rad) > 0:
+            ax_polar.stem(nlos_angles_rad, scaled_nlos_powers, linefmt='r-', markerfmt='ro', basefmt=' ', label='NLoS')
+        if self.channel.kr_factor > 0:
+            markerline, _, _ = ax_polar.stem([los_angle_rad], [1.0], linefmt='b-', markerfmt='bo', basefmt=' ', label='LoS')
             plt.setp(markerline, markerfacecolor='white', markeredgewidth=1.5)
+        ax_polar.set_yticklabels([]), ax_polar.grid(True)
 
-        # ax_polar.set_theta_zero_location('E')
-        # ax_polar.set_theta_direction(1)
-        ax_polar.set_yticklabels([])
-        ax_polar.grid(True)
-        plt.setp(ax_polar.get_xticklabels(), fontsize=12)
+        # 4. Plotagem do Gráfico Cartesiano (sem alterações na lógica de plot)
+        ax_cartesian.set_title(f"Espectro de Potência Angular", fontsize=14)
+        if len(nlos_angles_deg) > 0:
+            ax_cartesian.stem(nlos_angles_deg, nlos_powers, linefmt='k-', markerfmt='k^', basefmt=' ', label='NLoS')
+        if self.channel.kr_factor > 0:
+            ax_cartesian.stem([los_angle_deg], [los_power], linefmt='b-', markerfmt='b^', basefmt=' ', label='LoS')
+        ax_cartesian.set_yscale('log'), ax_cartesian.set_xlabel(f'Ângulo de {angle_type_name} (°)', fontsize=12)
+        ax_cartesian.set_ylabel('Potência Normalizada', fontsize=12), ax_cartesian.grid(True, which="both", ls=":")
 
-        # --- PLOTAGEM DO GRÁFICO CARTESIANO (ax_cartesian) ---
-        # ** NENHUMA MUDANÇA AQUI - Usa os ângulos originais (nlos_angles, los_angle) **
-        ax_cartesian.set_title(f"Espectro de Potência Angular ({angle_type_name})", fontsize=14)
+        # 5. Finalização
+        handles, labels = ax_cartesian.get_legend_handles_labels()
+        fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, 0.93), ncol=2)
+        plt.tight_layout(rect=[0, 0, 1, 0.9]), plt.show()
 
-        if len(nlos_angles) > 0:
-            markerline, _, _ = ax_cartesian.stem(
-                nlos_angles, nlos_powers, # Usa o dado original
-                linefmt='k-', markerfmt='k^', basefmt=' ',
-                label='NLoS'
-            )
-            plt.setp(markerline, markerfacecolor='black')
-
-        if channel.kr_factor > 0 and los_power > 0:
-            markerline, _, _ = ax_cartesian.stem(
-                [los_angle], [los_power], # Usa o dado original
-                linefmt='b-', markerfmt='b^', basefmt=' ',
-                label='LoS'
-            )
-            plt.setp(markerline, markerfacecolor='blue')
-
-        ax_cartesian.set_yscale('log')
-        ax_cartesian.set_xlabel(f'Ângulos de chegada em {angle_type_name_lower} (°)', fontsize=12)
-        ax_cartesian.set_ylabel('Potência', fontsize=12)
-        ax_cartesian.grid(True, which='both', linestyle=':')
-        ax_cartesian.tick_params(axis='both', which='major', labelsize=12)
-        
-        # if cartesian_xlim_dynamic:
-        #     if len(angles_data) > 0:
-        #          ax_cartesian.set_xlim(np.min(angles_data) - 5, np.max(angles_data) + 5)
-        # else:
-        #     ax_cartesian.set_xlim(cartesian_xlim_range)
-        #     ax_cartesian.set_xticks(np.arange(cartesian_xlim_range[0], cartesian_xlim_range[1] + 1, 60))
-
-        # --- FINALIZAÇÃO ---
-        plt.tight_layout(pad=3.0)
-        plt.show()
-
-    def plot_3d_directions(self):
-        """
-        Gera um gráfico 3D das direções de chegada (vetores).
-        """
-        print("Gerando gráfico 3D das direções de chegada...")
-        channel = self.channel_model
-
-        # Calcula as direções de chegada (X, Y, Z)
-        directions = channel._calculate_arrival_directions()
-        
-        # Garante que directions seja um array 2D (3, N)
-        if directions.shape[0] != 3 and directions.shape[1] == 3:
-            directions = directions.T
-
-        xs = directions[0, :]
-        ys = directions[1, :]
-        zs = directions[2, :]
-
-        # Cria a figura e o eixo 3D
+    def plot_3d_directions(self) -> None:
+        if not self._check_data(): return
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
-
-        # --- Plotar componentes NLoS ---
-        # As linhas partem da origem (0,0,0)
-        # O LoS está na posição 0, então os NLoS são de 1 em diante.
-        if channel.n_paths > 1:
-            nlos_xs = xs[1:]
-            nlos_ys = ys[1:]
-            nlos_zs = zs[1:]
-
-            # Plotar as linhas (stems) vermelhas
-            for i in range(len(nlos_xs)):
-                ax.plot([0, nlos_xs[i]], [0, nlos_ys[i]], [0, nlos_zs[i]], 'r-')
-            
-            # Plotar os marcadores (triângulos vazados) vermelhos
-            ax.plot(nlos_xs, nlos_ys, nlos_zs, 'r^', markerfacecolor='white', markeredgecolor='red', markersize=6, label='NLoS')
-
-        # --- Plotar componente LoS ---
-        # Apenas se houver um LoS significativo
-        if channel.kr_factor > 0 and channel.multipath_powers[0] > 0:
-            los_x = xs[0]
-            los_y = ys[0]
-            los_z = zs[0]
-
-            # Plotar a linha (stem) azul
-            ax.plot([0, los_x], [0, los_y], [0, los_z], 'b-')
-
-            # Plotar o marcador (triângulo vazado) azul
-            ax.plot([los_x], [los_y], [los_z], 'b^', markerfacecolor='white', markeredgecolor='blue', markersize=8, label='LoS')
-
-
-        # --- Configurações do Gráfico 3D ---
-        ax.set_xlabel('Eixo X', fontsize=12)
-        ax.set_ylabel('Eixo Y', fontsize=12)
-        ax.set_zlabel('Eixo Z', fontsize=12)
-        ax.set_title('Direções de Chegada em 3D', fontsize=14)
-
-        # 1. Ajustar os limites e as marcações (ticks) dos eixos
-        ax.set_xlim([-1, 1])
-        ax.set_ylim([-1, 1])
-        ax.set_zlim([-1, 1])
+        dirs = self.channel.arrival_directions
+        xs, ys, zs = dirs[0, :], dirs[1, :], dirs[2, :]
         
-        ticks = [-1, -0.5, 0, 0.5, 1]
-        ax.set_xticks(ticks)
-        ax.set_yticks(ticks)
-        ax.set_zticks(ticks)
+        if self.channel.n_paths > 1:
+            for i in range(1, self.channel.n_paths):
+                ax.plot([0, xs[i]], [0, ys[i]], [0, zs[i]], 'r-', alpha=0.7)
+            ax.plot(xs[1:], ys[1:], zs[1:], 'r^', markersize=6, label='NLoS')
         
-        # 2. Ajustar a posição da câmera para o eixo Z ficar à esquerda
-        # 'elev' = ângulo de elevação da câmera (olhar de cima/baixo)
-        # 'azim' = ângulo de azimute da câmera (girar em torno do eixo Z)
-        ax.view_init(elev=20, azim=-135)
+        if self.channel.kr_factor > 0:
+            ax.plot([0, xs[0]], [0, ys[0]], [0, zs[0]], 'b-'), ax.plot([xs[0]], [ys[0]], [zs[0]], 'b^', markersize=8, label='LoS')
 
-        # Garante que a proporção dos eixos seja igual (visualização cúbica)
-        ax.set_box_aspect([1,1,1])
+        ax.set_title('Direções de Chegada em 3D', fontsize=15)
+        ax.set_xlabel('Eixo X'), ax.set_ylabel('Eixo Y'), ax.set_zlabel('Eixo Z')
+        ax.set_xlim([-1, 1]), ax.set_ylim([-1, 1]), ax.set_zlim([-1, 1])
+        ax.view_init(elev=30, azim=-120), ax.set_box_aspect([1,1,1]), ax.legend()
+        plt.tight_layout(), plt.show()
+
+    def plot_doppler_spectrum(self) -> None:
+        """Plota o Espectro de Potência Doppler."""
+        if not self._check_data(): return
+        fig, ax = plt.subplots(figsize=(10, 6))
         
-        ax.grid(True)
+        ax.stem(self.channel.doppler_shifts, self.channel.multipath_powers, linefmt='k-', markerfmt='k^', basefmt=' ', label='NLoS')
+        if self.channel.scenario in {"umi_los", "uma_los"}:
+            ax.stem(self.channel.doppler_shifts[0], self.channel.multipath_powers[0], linefmt='b-', markerfmt='b^', basefmt=' ', label='LoS')
+
+        info_text = (f'$v_{{rx}} = {self.channel.rx_velocity_mps:.0f}$ m/s, $f_c = {self.channel.frequency_ghz:.0f}$ GHz\n'
+                     f'Azimute = ${self.channel.rx_azimuth_deg:.0f}^\\circ$, Elevação = ${self.channel.rx_elevation_deg:.0f}^\\circ$')
+        anchored_text = AnchoredText(info_text, loc="upper right", frameon=True, prop={'size': 10})
+        
+        ax.add_artist(anchored_text)
+        ax.set_yscale('log')
+        ax.set_title(f'Espectro de Potência Doppler - {self.channel.scenario.upper()}', fontsize=15)
+        ax.set_xlabel('Desvio Doppler (Hz)', fontsize=12)
+        ax.set_ylabel('Potência Normalizada', fontsize=12)
+        ax.grid(True, which="both", ls=":", alpha=0.6)
         ax.legend()
-
         plt.tight_layout()
         plt.show()
 
-    def plot_doppler_spectrum(self):
-        """
-        Plota o Espectro de Potência Doppler.
-        Mostra a potência de cada percurso em função do seu desvio Doppler.
-        """
-        channel = self.channel_model
-
-        # Verifica se os dados necessários foram gerados
-        if channel.doppler_shifts is None or channel.multipath_powers is None:
-            print("Erro: Execute o método 'generate_channel()' primeiro.")
-            return
-
-        # Pega os dados para os eixos X e Y
-        doppler_shifts_hz = channel.doppler_shifts
-        powers = channel.multipath_powers
-
-        # Cria a figura
-        plt.figure(figsize=(10, 6))
+    @staticmethod
+    def plot_statistical_delay_spread(scenario: str) -> None:
+        frequencies_ghz = np.logspace(np.log10(0.5), np.log10(100), 200)
+        calc = Channel3GPP(scenario=scenario, frequency_ghz=frequencies_ghz, n_paths=1, rx_velocity_mps=1)
         
-        # Plota todos os percursos (estilo NLoS)
-        plt.stem(doppler_shifts_hz, powers, linefmt='k-', markerfmt='k^', basefmt=' ')
+        mean_log_s, std_dev_log_s = calc.mean_sigma_tau_log, calc.std_dev_sigma_tau_log
+        mean_us = (10**mean_log_s) * 1e6
+        upper_bound_us, lower_bound_us = (10**(mean_log_s + std_dev_log_s)) * 1e6, (10**(mean_log_s - std_dev_log_s)) * 1e6
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(frequencies_ghz, mean_us, color='blue', lw=2, label='Média de $\\sigma_\\tau$')
+        ax.fill_between(frequencies_ghz, lower_bound_us, upper_bound_us, color='blue', alpha=0.2, label='Média ± 1 Desvio Padrão')
         
-        # Se houver um componente LoS, o redesenha com uma cor diferente
-        if channel.kr_factor > 0:
-            plt.stem(doppler_shifts_hz[0], powers[0], linefmt='b-', markerfmt='b^', basefmt=' ')
-
-
-        # Configurações do gráfico
-        info_text = (
-            f'$v_{{rx}} = {channel.rx_velocity_mps:.0f}$ m/s, '
-            f'$f_c = {channel.frequency_ghz:.0f}$ GHz, '
-            f'$azimuth = {channel.rx_azimuth_deg:.0f}$°, '
-            f'$elevation = {channel.rx_elevation_deg:.0f}$°'
-        )
-
-        plt.yscale('log') # Escala logarítmica para a potência é ideal aqui
-        plt.title(f'Espectro de Potência Doppler - {channel.scenario.upper()}', fontsize=16)
-        plt.xlabel('Desvio Doppler (Hz)', fontsize=12)
-        plt.ylabel('Potência Normalizada', fontsize=12)
-        plt.grid(True, which="both", ls=":", alpha=0.3)
-        anchored_text = AnchoredText(info_text, loc="upper left", frameon=True, prop={'size': 10})
-        plt.gca().add_artist(anchored_text)
-        plt.tight_layout()
-        plt.show()
-
-# if __name__ == '__main__':
-# TODO: create unit tests for all functions
-# TODO: refactor _plot_generic_angles
+        ax.set_xscale('log'), ax.set_title(f'Espalhamento de Atraso (Modelo Estatístico) - {scenario.upper()}', fontsize=15)
+        ax.set_xlabel('Frequência da Portadora ($f_c$) [GHz]'), ax.set_ylabel('Espalhamento de Atraso ($\\sigma_\\tau$) [$\\mu$s]')
+        ax.set_xlim(0.5, 100), ax.set_ylim(bottom=0), ax.xaxis.set_major_formatter(mticker.ScalarFormatter())
+        ax.grid(True, which='both', linestyle='--', linewidth=0.5), ax.legend()
+        plt.tight_layout(), plt.show()
