@@ -1,11 +1,8 @@
 import numpy as np
 
-# Global Constants
 LIGHT_SPEED = 299792458
 ANGULAR_FLUCTUATION_FACTOR = 7.0
 MEAN_ELEVATION_DEG = 45
-TIME_SAMPLES = int(1e5)
-PULSE_WIDTH = [1e-7, 1e-5, 1e-3]
 
 class Channel3GPP:
     """
@@ -35,7 +32,7 @@ class Channel3GPP:
         },
         "uma_nlos": {
             "mean_sigma_tau_log": (-0.204, -6.28), "std_dev_sigma_tau_log": 0.39, "r_tau": 2.3,   # Delay Spread (σ_τ, r_τ)
-            "std_dev_sigma_xi_db": 6.0, "mean_kr_db": 0.0, "std_dev_kr_db": 0.0,                # Power (K_R, σ_ξ)
+            "std_dev_sigma_xi_db": 6.0, "mean_kr_db": 0.0, "std_dev_kr_db": 0.0,                  # Power (K_R, σ_ξ)
             "mean_sigma_theta_log_deg": (-0.27, 2.08, True), "std_dev_sigma_theta_log_deg": 0.11, # Azimuth Angle (σ_θ)
             "mean_sigma_phi_log_deg": (-0.3236, 1.512, True), "std_dev_sigma_phi_log_deg": 0.16,  # Elevation Angle (σ_φ)
         }
@@ -56,14 +53,12 @@ class Channel3GPP:
         self.rx_azimuth_deg = rx_azimuth_deg
         self.rx_elevation_deg = rx_elevation_deg
 
-        self.delays = None
+        self.multipath_delays = None
         self.multipath_powers = None
         self.azimuth_angles = None
         self.elevation_angles = None
         self.arrival_directions = None
         self.doppler_shifts = None
-        self.multipath_phases = None
-        self.complex_gains = None
 
         self._load_scenario_parameters()
 
@@ -71,7 +66,7 @@ class Channel3GPP:
         """
         Performs a single channel realization, calculating all its parameters.
         """
-        
+
         # Generate large-scale parameters
         self.delay_spread = self._generate_gaussian(self.mean_sigma_tau_log, self.std_dev_sigma_tau_log, scale="log_to_linear")
         self.kr_factor = 0.0 if self.scenario in {"umi_nlos", "uma_nlos"} else self._generate_gaussian(self.mean_kr_db, self.std_dev_kr_db, scale="db_to_linear")
@@ -80,18 +75,13 @@ class Channel3GPP:
 
         # Generate small-scale parameters (multipath components)
         self.multipath_delays = self._calculate_multipath_delays(sigma_tau=self.delay_spread)
-        self.multipath_powers = self._calculate_multipath_powers(delays=self.multipath_delays, sigma_tau=self.delay_spread)
-        self.multipath_phases = self._calculate_multipath_phases()
+        self.multipath_powers = self._calculate_multipath_powers(delays=self.multipath_delays, sigma_tau=self.delay_spread)   
 
         power_ratios = self.multipath_powers / np.max(self.multipath_powers)
         self.azimuth_angles = self._calculate_angles(power_ratios=power_ratios, sigma_angle_rad=self.azimuth_spread_rad)
         self.elevation_angles = self._calculate_angles(power_ratios=power_ratios, sigma_angle_rad=self.elevation_spread_rad, is_elevation=True)
         self.arrival_directions = self._calculate_arrival_directions()
         self.doppler_shifts = self._calculate_doppler_shift()
-        
-        amplitudes = np.sqrt(self.multipath_powers)
-        initial_phases = np.random.uniform(0, 2 * np.pi, self.n_paths)
-        self.complex_gains = amplitudes * np.exp(1j * initial_phases)
 
         print(f"--> Channel realization generated successfully.")
         print(f"    - Delay Spread (σ_τ): {self.delay_spread*1e9} ns")
@@ -163,9 +153,8 @@ class Channel3GPP:
         return norm_powers
 
     def _calculate_angles(self, power_ratios: np.ndarray, sigma_angle_rad: float, is_elevation: bool = False) -> np.ndarray:
-        epsilon = 1e-12
-        safe_power_ratios = np.clip(power_ratios, epsilon, 1.0 - epsilon)
-        
+        safe_power_ratios = np.clip(power_ratios, 1e-12, 1)
+
         if is_elevation:
             initial_angles_rad = -sigma_angle_rad * np.log(safe_power_ratios)
         else: # Azimuth
@@ -174,7 +163,7 @@ class Channel3GPP:
         random_signs = np.random.choice([-1, 1], size=self.n_paths)
         fluctuations_rad = self._generate_gaussian(0, sigma_angle_rad / ANGULAR_FLUCTUATION_FACTOR, size=self.n_paths)
         final_angles_rad = (random_signs * initial_angles_rad) + fluctuations_rad
-
+        
         if self.scenario in {"umi_los", "uma_los"}:
             final_angles_rad -= final_angles_rad[0]
             if is_elevation:
@@ -210,15 +199,3 @@ class Channel3GPP:
         doppler_shifts = max_doppler_shift * cos_angles
         
         return doppler_shifts
-
-    def _calculate_multipath_phases(self):
-        frequency_hz = self.frequency_ghz * 1e9
-        # multipath_delays = np.atleast_1d(self.multipath_delays)
-
-        time_vector = np.linspace(0, 5*PULSE_WIDTH, TIME_SAMPLES)
-
-        static_phase = (frequency_hz + self.doppler_shifts[:, np.newaxis]) * self.multipath_delays[:, np.newaxis]
-        dinamic_phase = self.doppler_shifts[:, np.newaxis] * time_vector
-
-        phase_phi = 2 * np.pi * (static_phase - dinamic_phase)
-        return phase_phi
