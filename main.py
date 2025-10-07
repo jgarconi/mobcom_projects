@@ -49,13 +49,25 @@ if __name__ == '__main__':
     
     meu_canal.generate_channel()
     plotter = PlotChannelModel(meu_canal)
+    
+    kappa_hz = np.logspace(3, 8, 5000)
+    corr_freq = meu_canal.calculate_freq_correlation(kappa_hz)
+    bc_95 = Channel3GPP.get_coherence_value(corr_freq, kappa_hz, 0.95)
+    bc_90 = Channel3GPP.get_coherence_value(corr_freq, kappa_hz, 0.90)
+    plotter.plot_coherence_bandwidth(kappa_hz, corr_freq, bc_95, bc_90, meu_canal)
 
-    # plotter.plot_3d_directions()
-    # plotter.plot_azimuth_spread()
-    # plotter.plot_elevation_spread()
-    # plotter.plot_doppler_spectrum()
-    # plotter.plot_power_delay_profile()
-    # PlotChannelModel.plot_statistical_delay_spread(meu_canal.scenario)
+    sigma_s = np.logspace(-5, -1, 5000)
+    corr_time = meu_canal.calculate_time_correlation(sigma_s)
+    tc_95 = Channel3GPP.get_coherence_value(corr_time, sigma_s, 0.95)
+    tc_90 = Channel3GPP.get_coherence_value(corr_time, sigma_s, 0.90)
+    plotter.plot_coherence_time(sigma_s, corr_time, tc_95, tc_90, meu_canal)
+
+    plotter.plot_3d_directions()
+    plotter.plot_azimuth_spread()
+    plotter.plot_elevation_spread()
+    plotter.plot_doppler_spectrum()
+    plotter.plot_power_delay_profile()
+    PlotChannelModel.plot_statistical_delay_spread(meu_canal.scenario)
 
     for delta_t in PULSE_WIDTHS:
         t, tx_pulse = create_rectangular_pulse(pulse_width=delta_t)

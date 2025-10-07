@@ -199,3 +199,36 @@ class Channel3GPP:
         doppler_shifts = max_doppler_shift * cos_angles
         
         return doppler_shifts
+
+    def calculate_freq_correlation(self, kappa_hz: np.ndarray) -> np.ndarray:
+        powers = self.multipath_powers
+        delays = self.multipath_delays
+
+        # delays[:, np.newaxis] -> shape (N, 1)
+        # kappa_hz -> shape (K,)
+        # term -> shape (N, K)
+        term = -2j * np.pi * delays[:, np.newaxis] * kappa_hz
+        phasors = np.exp(term)
+
+        correlation = np.sum(powers[:, np.newaxis] * phasors, axis=0)
+
+        return np.abs(correlation)
+    
+    def calculate_time_correlation(self, sigma_s: np.ndarray) -> np.ndarray:
+        powers = self.multipath_powers
+        dopplers = self.doppler_shifts
+        
+        term = 2j * np.pi * dopplers[:, np.newaxis] * sigma_s
+        phasors = np.exp(term)
+        
+        correlation = np.sum(powers[:, np.newaxis] * phasors, axis=0)
+        
+        return np.abs(correlation)
+    
+    @staticmethod
+    def get_coherence_value(correlation_values: np.ndarray, shift_values: np.ndarray, threshold: float) -> float:
+        try:
+            first_index_below_threshold = np.where(correlation_values < threshold)[0][0]
+            return shift_values[first_index_below_threshold]
+        except IndexError:
+            return np.nan

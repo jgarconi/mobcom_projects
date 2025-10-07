@@ -144,3 +144,47 @@ class PlotChannelModel:
         ax.set_xlim(0.5, 100), ax.set_ylim(bottom=0), ax.xaxis.set_major_formatter(mticker.ScalarFormatter())
         ax.grid(True, which='both', linestyle='--', linewidth=0.5), ax.legend()
         plt.tight_layout(), plt.show()
+
+    @staticmethod
+    def plot_coherence_bandwidth(kappa_hz, correlation, bc_95, bc_90, channel):
+        """Gera o gráfico da Banda de Coerência."""
+        plt.figure(figsize=(10, 6))
+        plt.plot(kappa_hz, correlation)
+        
+        # Linhas de limiar
+        plt.axhline(y=0.95, color='gray', linestyle='--')
+        plt.axhline(y=0.90, color='gray', linestyle='-.')
+
+        # Linhas verticais para os valores encontrados
+        plt.axvline(x=bc_95, color='red', linestyle='--', label=f'$B_C (0.95) = {bc_95/1e6:.2f}$ MHz')
+        plt.axvline(x=bc_90, color='green', linestyle='--', label=f'$B_C (0.90) = {bc_90/1e6:.2f}$ MHz')
+        
+        plt.xscale('log')
+        plt.title(f'Banda de Coerência - {channel.scenario.upper()} ($\sigma_\\tau = {channel.delay_spread*1e9:.1f}$ ns)', fontsize=15)
+        plt.xlabel('Desvio de Frequência - κ (Hz)', fontsize=12)
+        plt.ylabel('$|\\rho_{TT}(\\kappa, 0)|$', fontsize=12)
+        plt.grid(True, which='both', linestyle=':', alpha=0.7)
+        plt.legend()
+        plt.ylim(bottom=np.min(correlation)-0.05, top=1.05)
+        plt.show()
+
+    @staticmethod
+    def plot_coherence_time(sigma_s, correlation, tc_95, tc_90, channel):
+        """Gera o gráfico do Tempo de Coerência."""
+        plt.figure(figsize=(10, 6))
+        plt.plot(sigma_s, correlation)
+
+        plt.axhline(y=0.95, color='gray', linestyle='--')
+        plt.axhline(y=0.90, color='gray', linestyle='-.')
+        
+        plt.axvline(x=tc_95, color='red', linestyle='--', label=f'$T_C (0.95) = {tc_95*1e3:.2f}$ ms')
+        plt.axvline(x=tc_90, color='green', linestyle='--', label=f'$T_C (0.90) = {tc_90*1e3:.2f}$ ms')
+        
+        plt.xscale('log')
+        plt.title(f'Tempo de Coerência - {channel.scenario.upper()} ($v_{{rx}} = {channel.rx_velocity_mps}$ m/s)', fontsize=15)
+        plt.xlabel('Desvio de Tempo - σ (s)', fontsize=12)
+        plt.ylabel('$|\\rho_{TT}(0, \\sigma)|$', fontsize=12)
+        plt.grid(True, which='both', linestyle=':', alpha=0.7)
+        plt.legend()
+        plt.ylim(bottom=np.min(correlation)-0.05, top=1.05)
+        plt.show()
