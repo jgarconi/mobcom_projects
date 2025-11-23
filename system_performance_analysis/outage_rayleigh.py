@@ -4,8 +4,10 @@ import matplotlib.pyplot as plt
 # Número de amostras de SNR (Nt)
 N_SNR_SAMPLES = 10**5
 
-# Variância (estudar o porquê de ser 1/2)
-sigma = 1/2
+# Variância
+# Pot. ruído para Es = 1 -> sigma² = 1/2 (gamma_s)
+#                        variância = 1/2 * SNR_símbolo
+sigma = np.sqrt(1/2)
 
 # Limiar de SNR - eixo x variando de 10 em 10 de -30 a 30
 gamma_th_db = np.arange(-30, 31, 5)
@@ -15,7 +17,7 @@ gamma_th_lin = 10**(gamma_th_db / 10)
 snr_media_db = np.array([-20, 0, 20])
 snr_media_lin = 10**(snr_media_db / 10)
 
-# Envoltória do canal (Rayleigh)
+# Envoltória do canal (Rayleigh normalizado)
 x = np.random.normal(0, sigma, N_SNR_SAMPLES)
 y = np.random.normal(0, sigma, N_SNR_SAMPLES)
 beta = np.sqrt(x**2 + y**2)
