@@ -4,16 +4,13 @@ import matplotlib.pyplot as plt
 KO_BOLTZMANN = 1.381e-23  # Constante de Boltzmann (J/K)
 
 class CellFreeSystem:
-    """
-    Representa o sistema de modulação M-QAM, incluindo a constelação, 
-    canais (Rayleigh, AWGN) e o detector de Mínima Distância.
-    """
+    
     def __init__(self):
         self.Nbc = 100 # Número de blocos de coerência por rede
         self.Ncf = 300 # Total de redes avaliadas
         self.fc = 3e9  # Frequência da portadora (Hz)
         self.Bw = 20e6  # Largura de banda do sistema (Hz)
-        self.Fn = 9  # Figura de ruído do receptor (dB)
+        self.Fn = 8  # Figura de ruído do receptor (em linear ou 9 dB)
         self.hAP= 15  # Altura da antena dos APs (m)
         self.hUE= 1.65 # Altura da antena dos UEs (m)
         self.T0 = 296.15 # Temperatura (K)
@@ -21,66 +18,78 @@ class CellFreeSystem:
         self.Ly = 1000 # Dimensão y da área da célula (m)
         self.Pp = 200e-3 # Potência das sequências piloto (W)
         self.Pdl = 200e-3 # Potência de transmissão DL (W)
-        self.taup = 50 # Comprimento das sequências piloto
+        self.tau_p = 50 # Comprimento das sequências piloto
 
         self.M = 20 # Número de APs
         self.K = 10 # Número de UEs
 
-        self.Pn = KO_BOLTZMANN * self.T0 * self.Bw * 10**(self.Fn / 10) # Potência de ruído (W)
+        self.Pn = KO_BOLTZMANN * self.T0 * self.Bw * self.Fn # Potência de ruído (W)
 
-    def _generate_uniform_positions(self, N_nodes, height):
+    ########### Distribuição dos APs e UEs
+    def _generate_uniform_positions(self, N_element, height):
         """ Gera posições uniformemente distribuídas na área da célula. """
-        x_positions = np.random.uniform(-self.Lx/2, self.Lx/2, N_nodes)
-        y_positions = np.random.uniform(-self.Ly/2, self.Ly/2, N_nodes)
-        z_positions = np.full(N_nodes, height)
+        x_positions = np.random.uniform(-self.Lx/2, self.Lx/2, N_element)
+        y_positions = np.random.uniform(-self.Ly/2, self.Ly/2, N_element)
+        z_positions = np.full(N_element, height)
         return np.column_stack((x_positions, y_positions, z_positions))
     
     def _calculate_distances(self, ap_positions, ue_positions):
         """ Calcula as distâncias entre APs e UEs. """
-        distances = np.zeros((self.M, self.K))
-        for m in range(self.M):
-            for k in range(self.K):
-                distances[m, k] = np.linalg.norm(ap_positions[m] - ue_positions[k])
+        diff = ap_positions[:, np.newaxis, :] - ue_positions[np.newaxis, :, :]
+        distances = np.linalg.norm(diff, axis=2)
         return distances
     
-    def _calculate_fspl(self, frequency_MHz, distance_km=0.001):
+    ########### Coeficientes de canal
+    def _calculate_fspl(self, frequency_MHz, distance_km):
         # ITU-R P.525-4
         return 20*np.log10(distance_km) + 20*np.log10(frequency_MHz) + 32.44
     
     def calculate_fading(self, frequency_MHz, ap_pos, ue_pos):
         distances = self._calculate_distances(ap_pos, ue_pos)
-        fspl_1m = self._calculate_fspl(frequency_MHz)
-        x_sf = np.random.normal(0, 8, len(distances.T))
+        distances = np.maximum(distances, 1)
+
+        fspl_1m = self._calculate_fspl(frequency_MHz, 0.001)
+        x_sf = np.random.normal(0, 8, distances.shape)
 
         # Desvanecimento em grande escala
-        slow_fadig = 10**((fspl_1m + 28*np.log10(distances) + x_sf)/10)
-        # Desvanecimento em pequena escala
-        fast_fading = np.random.normal(0, 1/2, len(distances.T)) + \
-                      1j * np.random.normal(0, 1/2, len(distances.T))
-        # Coeficientes do canal
-        g_mk = np.sqrt(slow_fadig)*fast_fading
+        path_loss_db = fspl_1m + 28*np.log10(distances) + x_sf
+        slow_fading = 10**(path_loss_db/10)
+        # Desvanecimento em pequenacoef_pow_ctrl escala
+        fast_fading = np.random.normal(0, 1/2, distances.shape) + \
+                      1j * np.random.normal(0, 1/2, distances.shape)
+        # Coeficientes do canal com desvanecimento
+        g_mk = np.sqrt(slow_fading)*fast_fading
 
-        return slow_fadig, fast_fading, g_mk
+        return slow_fading, fast_fading, g_mk
 
+    ########### Fase de estimação do canal
     def estimate_channel(self, g_mk, slow_fading):
         # Ruído equivalente
-        v_mk = np.random.normal(0, self.Pn)
-        yp = np.sqrt(self.taup*self.Pp)*g_mk + v_mk
-        c_mk = (np.sqrt(self.taup*self.Pp)*slow_fading)/ \
-                (self.taup*self.Pp*slow_fading + self.Pn)
-        
+        v_mk = np.random.normal(0, self.Pn, g_mk.shape) + \
+                1j * np.random.normal(0, self.Pn, g_mk.shape)
+
+        yp = np.sqrt(self.tau_p*self.Pp) * g_mk + v_mk
+
+        num = np.sqrt(self.tau_p * self.Pp) * slow_fading
+        den = (self.tau_p * self.Pp * slow_fading) + self.Pn
+        c_mk = num / den
+
         mmse_channel = c_mk*yp
 
-        return mmse_channel
+        return mmse_channel, c_mk
     
-    def _calculate_power_control(self, slow_fading, mmse_channel):
-        pow_mmse_channel = np.sqrt(self.taup*self.Pp)*slow_fading*mmse_channel
-        coef_power_control = np.zeros(self.M)
+    ########### Fase de transmissão de dados (DL)
+    def _calculate_coef_pow_ctrl(self, slow_fading, c_mk):
+        mmse_ch_pow = np.sqrt(self.tau_p * self.Pp) * slow_fading * c_mk
+        # Soma sobre todos os usuários K (axis=1) para cada AP m
+        sum_mmse_ch_pow = np.sum(mmse_ch_pow, axis=1)
 
-        for m in range(self.M):
-            for k in range(self.K):
-                coef_power_control[m] = 1/np.sum(pow_mmse_channel)
-        return coef_power_control
+        coef_pow_ctrl = 1.0 / sum_mmse_ch_pow
+
+        return coef_pow_ctrl, mmse_ch_pow
+    
+
+
 
 
     def plot_positions(self):
@@ -109,8 +118,9 @@ if __name__ == "__main__":
                                            ap_pos=ap_positions,
                                            ue_pos=ue_positions)
     
-    mmse_channel = system.estimate_channel(channel_coef, slow_fd)
+    mmse_channel, c_mk = system.estimate_channel(channel_coef, slow_fd)
 
-    coef_power_ctl = system._calculate_power_control(slow_fd, mmse_channel)
+    coef_pow_ctrl = system._calculate_coef_pow_ctrl(slow_fd, c_mk)
 
-    print((coef_power_ctl))
+    print("Coeficientes de Controle de Potência para os 20 APs:")
+    print(coef_pow_ctrl)
