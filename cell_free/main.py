@@ -1,163 +1,307 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-BOLTZMANN = 1.381e-23  # Constante de Boltzmann (J/K)
+# Configuração de estilo dos gráficos
+plt.rcParams.update({'font.size': 12, 'axes.grid': True, 'grid.alpha': 0.5})
 
 class CellFreeSystem:
-    
-    def __init__(self):
-        self.Nbc = 100      # Número de blocos de coerência por rede
-        self.Ncf = 300      # Total de redes avaliadas
-        self.fc = 3e3       # Frequência da portadora (MHz)
-        self.Bw = 20        # Largura de banda do sistema (MHz)
-        self.Fn = 8         # Figura de ruído do receptor (W ou 9 dB)
-        self.hAP= 15        # Altura da antena dos APs (m)
-        self.hUE= 1.65      # Altura da antena dos UEs (m)
-        self.T0 = 296.15    # Temperatura (K)
-        self.Lx = 1000      # Dimensão x da área da célula (m)
-        self.Ly = 1000      # Dimensão y da área da célula (m)
-        self.Pp = 200e-3    # Potência das sequências piloto (W)
-        self.Pdl = 200e-3   # Potência de transmissão DL (W)
-        self.tau_p = 50     # Comprimento das sequências piloto
+    def __init__(self, M, K):
+        """
+        Cria as instâncias do sistema Cell-Free com M APs e K UEs
+        """
 
-        self.M = 20         # Número de APs
-        self.K = 10         # Número de UEs
+        self.M = M              # Número de APs
+        self.K = K              # Número de UEs
+        self.Ncf = 300          # Redes para avaliar (Snapshots de Larga Escala)
+        self.Nbc = 100          # Blocos de coerência (Snapshots de Pequena Escala)
 
-        # Potência de ruído (W)
-        self.Pn = BOLTZMANN * self.T0 * self.Bw * self.Fn
+        self.fc = 3e9           # Frequência da portadora
+        self.Bw = 20e6          # Largura de Banda
+        self.Fn = 10**(9/10)    # Figura de ruído (9 dB em linear)
+        self.T0 = 296.15        # Temperatura de ruído (K)
 
-        # Número de usos do canal (TODO: calcular tau_c como TcBc)
-        self.tau_c = 100
+        self.Lx = 1000          # Comprimento da área de simulação (m)
+        self.Ly = 1000          # Largura da área de simulação (m)
+        self.hAP = 15           # Altura dos APs (m)
+        self.hUE = 1.65         # Altura dos UEs (m)
 
-    ########### Distribuição dos APs e UEs
-    def _generate_uniform_positions(self, N_devices, height):
-        """ Gera posições uniformemente distribuídas na área da célula. """
-        x_positions = np.random.uniform(-self.Lx/2, self.Lx/2, N_devices)
-        y_positions = np.random.uniform(-self.Ly/2, self.Ly/2, N_devices)
-        z_positions = np.full(N_devices, height)
-        return np.column_stack((x_positions, y_positions, z_positions))
-    
-    def _calculate_distances(self, ap_positions, ue_positions):
-        """ Calcula as distâncias entre APs e UEs. """
-        diff = ap_positions[:, np.newaxis, :] - ue_positions[np.newaxis, :, :]
-        distances = np.linalg.norm(diff, axis=2)
-        return distances
-    
-    ########### Coeficientes de canal
-    def _calculate_fspl(self, frequency_MHz, distance_km):
-        """ Calcula as perdas de espaço livre de acordo com a ITU-R P.525.4 """
-        return 20*np.log10(distance_km) + 20*np.log10(frequency_MHz) + 32.4
-    
-    def calculate_channel_coefficients(self, frequency_MHz, ap_pos, ue_pos):
-        """ Calcula os coeficientes do canal com desvanecimento entre APs e UEs """
-        distances = self._calculate_distances(ap_pos, ue_pos)
-        distances = np.maximum(distances, 1)
+        self.Pp = 200e-3        # Potência das sequências piloto (W)
+        self.Pdl = 200e-3       # Potência da downlink (W)
+        self.tau_p = 50         # Comprimento da sequência piloto
 
-        fspl_1m = self._calculate_fspl(frequency_MHz, 0.001)
-        x_sf = np.random.normal(0, 8, distances.shape)
+        # Cálculo da potência de ruído
+        k_bolt = 1.381e-23
+        self.Pn = k_bolt * self.T0 * self.Bw * self.Fn
 
-        # Desvanecimento em larga escala
-        path_loss_db = fspl_1m + 28*np.log10(distances) + x_sf
-        slow_fading = 10**(path_loss_db/10)
+    def generate_topology(self):
+        """
+        Gera as posições dos APs e UEs aleatoriamente na área definida
+        """
 
-        # Desvanecimento em pequena escala
-        fast_fading = np.random.normal(0, 1/2, distances.shape) + \
-                 1j * np.random.normal(0, 1/2, distances.shape)
+        ap_pos = np.zeros((self.M, 3))
+        ap_pos[:, 0] = np.random.uniform(-self.Lx/2, self.Lx/2, self.M)
+        ap_pos[:, 1] = np.random.uniform(-self.Ly/2, self.Ly/2, self.M)
+        ap_pos[:, 2] = self.hAP
+        
+        ue_pos = np.zeros((self.K, 3))
+        ue_pos[:, 0] = np.random.uniform(-self.Lx/2, self.Lx/2, self.K)
+        ue_pos[:, 1] = np.random.uniform(-self.Ly/2, self.Ly/2, self.K)
+        ue_pos[:, 2] = self.hUE
+        
+        return ap_pos, ue_pos
 
-        # Coeficiente do canal com desvanecimento
-        g_mk = np.sqrt(slow_fading)*fast_fading
+    def calculate_large_scale_fading(self, ap_pos, ue_pos):
+        """
+        Calcula o desvanecimento em larga escala para as posições dos APs e UEs fornecidas.
+        """
 
-        return slow_fading, fast_fading, g_mk
+        # Distâncias (Slide 41)
+        diff = ap_pos[:, np.newaxis, :] - ue_pos[np.newaxis, :, :]
+        dist = np.linalg.norm(diff, axis=2)
+        dist = np.maximum(dist, 10) # Evita singularidade
+        
+        # Modelo de Perda de Percurso (ITU-R P.525-4)
+        f_mhz = self.fc / 1e6
+        PL_fs_1m = 20*np.log10(0.001) + 20*np.log10(f_mhz) + 32.4
+        
+        # Sombreamento
+        shadowing = np.random.normal(0, 8, (self.M, self.K))
 
-    ########### Fase de estimação do canal
-    def estimate_channel(self, g_mk, slow_fading):
-        """ Estimação do canal entre o AP m e os k UEs usando MMSE baseado em sequências piloto. """
-        # Ruído equivalente
-        v_mk = np.random.normal(0, self.Pn, g_mk.shape) + \
-                1j * np.random.normal(0, self.Pn, g_mk.shape)
+        PL_db = PL_fs_1m + 28*np.log10(dist/1e3) + shadowing
 
-        # Projeção da sequência piloto
-        yp = np.sqrt(self.tau_p*self.Pp) * g_mk + v_mk
+        # Conversão para linear
+        Omega = 10**(-PL_db/10)
+        return Omega
 
-        # Coeficiente de MMSE
-        num = np.sqrt(self.tau_p * self.Pp) * slow_fading
-        den = (self.tau_p * self.Pp * slow_fading) + self.Pn
-        c_mk = num / den
+    def run_simulation(self):
+        """
+        Executa a simulação completa para o par (M, K) configurado.
+        Retorna listas com SINR (dB) e Taxas (Mbps) acumuladas de todos os usuários.
+        """
 
-        # Canal estimado
-        mmse_channel = c_mk*yp
+        # Listas para acumular dados de todos os snapshots e usuários
+        sinr_ecsi_db_all = []
+        sinr_pcsi_db_all = []
+        rate_ecsi_all = []
+        rate_pcsi_all = []
+        
+        print(f"Simulando M={self.M}, K={self.K}...")
 
-        return mmse_channel, c_mk
-    
-    ########### Fase de transmissão de dados (DL)
-    def _calculate_coef_pow_ctrl(self, slow_fading, c_mk):
-        """ Calcula os coeficientes de controle de potência para cada AP m. """
+        # Loop Monte Carlo Externo (Geometria/Larga Escala)
+        for _ in range(self.Ncf):
+            # 1. Gera posições e Larga Escala
+            ap_pos, ue_pos = self.generate_topology()
+            Omega = self.calculate_large_scale_fading(ap_pos, ue_pos)
+            
+            # 2. Coeficientes MMSE de Estimação de Canal
+            num_c = np.sqrt(self.tau_p * self.Pp) * Omega
+            den_c = (self.tau_p * self.Pp * Omega) + self.Pn
+            c_mk = num_c / den_c
+            
+            # 3. Estatísticas do Canal Estimado (Gamma)
+            gamma_mk = np.sqrt(self.tau_p * self.Pp) * Omega * c_mk
+            
+            # 4. Controle de Potência
+            sum_gamma = np.sum(gamma_mk, axis=1) # Soma sobre usuários (K) -> vetor (M,)
+            eta_m = 1.0 / np.maximum(sum_gamma, 1e-21)
+            
+            # Expande eta para matriz (M, K)
+            eta_mk = eta_m[:, np.newaxis] * np.ones((self.M, self.K))
+            
+            # --- CÁLCULO ECSI (Estimated CSI / Estatístico) ---
 
-        # Ganho do canal estimado
-        estimated_channel_gain = np.sqrt(self.tau_p * self.Pp) * slow_fading * c_mk
+            # SINR ECSI (Equação 37)
+            # Numerador: Pd * ( soma_m( sqrt(eta_mk) * gamma_mk ) )^2
+            # Potência recebida em K dos M APs
+            term_num = np.sum(np.sqrt(eta_mk) * gamma_mk, axis=0) # (K,)
+            num_ecsi = self.Pdl * (term_num**2)
 
-        # Soma o ganho sobre todos os usuários K (axis=1) para cada AP m
-        channel_gain_m = np.sum(estimated_channel_gain, axis=1)
+            # Denominador: Pd * sum_k sum_m (eta_mk' * gamma_mk' * Omega_mk) + Pn
+            # Potência total transmitida por M APs
+            power_per_ap = np.sum(eta_mk * gamma_mk, axis=1) # (M,)
 
-        # Coeficiente de controle de potência do AP m (ηm)
-        power_control_coef_m = 1 / channel_gain_m
+            # Sinal total recebido pelo usuário K
+            interf_matrix = power_per_ap[:, np.newaxis] * Omega # (M, K)
+            interf_total = np.sum(interf_matrix, axis=0) # (K,)
 
-        return power_control_coef_m, channel_gain_m
+            denom_ecsi = self.Pdl * interf_total + self.Pn
 
-    def calculate_dl_sinr(self, channel_gain, coef_pow_ctrl):
-        """ Calcula o SINR de downlink para cada UE k. """
-        sinr_ec_dl = np.zeros(self.K)
+            # Razão Sinal/Interferência + Ruído
+            sinr_ecsi = num_ecsi / denom_ecsi # (K,)
+            sinr_ecsi_db_all.extend(10*np.log10(sinr_ecsi))
 
-        for k in range(self.K):
-            # Potência do sinal recebido pelo usuário k dos m APs
-            numerator = self.Pdl * (np.sum(np.sqrt(coef_pow_ctrl) * channel_gain[:, k]))**2
-            interference = 0
-            # Interferência dos outros usuários + ruído
-            for j in range(self.K):
-                if j != k:
-                    interference += self.Pdl * (np.sum(np.sqrt(coef_pow_ctrl) * channel_gain[:, j]))**2
-            denominator = interference + self.Pn
-            sinr_ec_dl[k] = numerator / denominator
+            # Taxa ECSI (Equação 24)
+            rate_ecsi = self.Bw * np.log2(1 + sinr_ecsi)
+            rate_ecsi_all.extend(rate_ecsi / 1e6) # Mbps
 
-        return sinr_ec_dl
+            # --- CÁLCULO PCSI (Perfect CSI / Instantâneo) ---
+            
+            # SINR PCSI (Equação 21)
+            # Loop Interno Monte Carlo (Pequena Escala) para a taxa ergódica
 
-    def calculate_achivable_rate(self, sinr_ec_dl):
-        """ Calcula a taxa alcançável para cada UE k com base no SINR de downlink. """
-        rates_ci = self.Bw * np.log2(1 + sinr_ec_dl)
-        rates_ce = np.log2(1 + sinr_ec_dl)
-        return rates_ci, rates_ce
+            # Coeficientes de pequena escala (M, K, Nbc)
+            h_real = np.random.normal(0, 1/2, (self.M, self.K, self.Nbc)) + \
+                     1j * np.random.normal(0, 1/2, (self.M, self.K, self.Nbc))
 
+            # Canal g_mk = sqrt(Omega) * h_real, Broadcast Omega (M, K) -> (M, K, 1)
+            g_mk_inst = np.sqrt(Omega)[:, :, np.newaxis] * h_real # (M, K, Nbc)
 
-    def plot_positions(self):
-        """ Plota as posições dos APs e UEs na área da célula. """
-        ap_positions = self._generate_uniform_positions(self.M, self.hAP)
-        ue_positions = self._generate_uniform_positions(self.K, self.hUE)
+            # Ruído na estimativa (M, K, Nbc)
+            noise_est = (np.random.normal(0, self.Pn, (self.M, self.K, self.Nbc)) + \
+                         1j*np.random.normal(0, self.Pn, (self.M, self.K, self.Nbc))) * np.sqrt(self.Pn/2)
 
-        plt.figure(figsize=(8, 8))
-        plt.scatter(ap_positions[:, 0], ap_positions[:, 1], c='blue', marker='^', label='APs')
-        plt.scatter(ue_positions[:, 0], ue_positions[:, 1], c='red', marker='o', label='UEs')
-        plt.xlim(-self.Lx/2, self.Lx/2)
-        plt.ylim(-self.Ly/2, self.Ly/2)
-        plt.xlabel('Posição X (m)')
-        plt.ylabel('Posição Y (m)')
-        plt.title('Posições dos APs e UEs na Área da Célula')
-        plt.legend()
-        plt.grid(True)
-        plt.show()
+            # Potência recebida: Pdl * | sum_m (sqrt(eta)*conj(g_hat)*g_mk_inst) |^2
+            yp = np.sqrt(self.tau_p * self.Pp) * g_mk_inst + noise_est
+            g_hat_inst = c_mk[:, :, np.newaxis] * yp
+            precoder = np.sqrt(eta_mk)[:, :, np.newaxis] * np.conj(g_hat_inst)
+            term_cross = np.sum(g_mk_inst[:, :, np.newaxis, :] * precoder[:, np.newaxis, :, :], axis=0)
+
+            # Potência que o usuário k recebe do sinal do usuário k'
+            H_power = self.Pdl * (np.abs(term_cross)**2) # (K, K, Nbc)
+
+            # Sinal Útil (Numerador): Quando quem transmite (tx) é igual a quem recebe (rx)
+            signal_power = np.diagonal(H_power, axis1=0, axis2=1).T  # (K, Nbc)
+
+            # Potência total recebida por cada usuário K
+            total_received_power = np.sum(H_power, axis=1) # (K, Nbc)
+            interference = total_received_power - signal_power
+
+            denom_pcsi = interference + self.Pn
+
+            sinr_pcsi = signal_power / denom_pcsi
+
+            # Taxa PCSI (Equação 24)
+            sinr_pcsi_db_all.extend(10*np.log10(sinr_pcsi.flatten()))
+            rate_inst = self.Bw * np.log2(1 + sinr_pcsi)
+            rate_avg_ue = np.mean(rate_inst, axis=1)
+            rate_pcsi_all.extend(rate_avg_ue / 1e6)  # Mbps
+
+        return sinr_ecsi_db_all, sinr_pcsi_db_all, rate_ecsi_all, rate_pcsi_all
+
+def plot_ecdf(data_dict, title, xlabel, output_filename=None, xlim=None, ylim=None):
+    """ Plota a CDF comparativa de ECSI e PCSI """
+
+    plt.figure(figsize=(8, 6))
+
+    styles = ['--', '-'] # ECSI tracejado, PCSI sólido
+    colors = ['#1f77b4', '#d62728', '#ff7f0e']
+
+    idx_color = 0
+    for i, (label, data) in enumerate(data_dict.items()):
+        sorted_data = np.sort(data)
+        yvals = np.arange(len(sorted_data)) / float(len(sorted_data) - 1)
+
+        style = styles[i % 2]
+        color = colors[idx_color]
+
+        plt.plot(sorted_data, yvals, linestyle=style, color=color, linewidth=2, label=label)
+
+        if i % 2 == 1: # Mudou o par, muda a cor
+            idx_color += 1
+
+    if xlim:
+        plt.xlim(xlim)
+            
+    plt.ylim(0, 1)
+    plt.xlabel(xlabel)
+    plt.ylabel('ECDF')
+    plt.title(title)
+    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.6)
+    if output_filename:
+        plt.savefig(output_filename, dpi=300)
+    plt.show()
+
+def plot_topology(system_instance, title="Topologia da Rede (1 Snapshot)"):
+    """ Plota a posição dos APs e UEs de uma única realização """
+    ap_pos, ue_pos = system_instance.generate_topology()
+
+    plt.figure(figsize=(8, 8))
+    # APs como triângulos azuis
+    plt.scatter(ap_pos[:, 0], ap_pos[:, 1], c='blue', marker='^', s=50, label='APs', alpha=0.7)
+    # UEs como pontos vermelhos
+    plt.scatter(ue_pos[:, 0], ue_pos[:, 1], c='red', marker='o', s=50, label='UEs', alpha=0.7)
+
+    plt.xlim(-system_instance.Lx/2, system_instance.Lx/2)
+    plt.ylim(-system_instance.Ly/2, system_instance.Ly/2)
+    plt.xlabel('Posição X (m)')
+    plt.ylabel('Posição Y (m)')
+    plt.title(title)
+    plt.legend()
+    plt.grid(True)
+    plt.savefig('topologia.png', dpi=300)
+    plt.show()
 
 if __name__ == "__main__":
-    system = CellFreeSystem()
 
-    ap_positions = system._generate_uniform_positions(system.M, system.hAP)
-    ue_positions = system._generate_uniform_positions(system.K, system.hUE)
-    slow_fd, fast_fd, channel_coef = system.calculate_channel_coefficients(
-                                     frequency_MHz=system.fc,
-                                     ap_pos=ap_positions,
-                                     ue_pos=ue_positions)
-    
-    mmse_channel, c_mk = system.estimate_channel(channel_coef, slow_fd)
+    # ==========================================
+    # CENÁRIO 1: Variando
+    # Fixar K=20
+    # ==========================================
+    K_fixo = 20
+    M_values = [100, 150, 200]
 
-    coef_pow_ctrl = system._calculate_coef_pow_ctrl(slow_fd, c_mk)
+    results_sinr_M = {}
+    results_rate_M = {}
 
-    print("Coeficientes de Controle de Potência para os 20 APs:")
-    print(coef_pow_ctrl)
+    print("--- Iniciando Cenário 1: Variando M ---")
+    for M in M_values:
+        sys = CellFreeSystem(M=M, K=K_fixo)
+        s_ecsi, s_pcsi, r_ecsi, r_pcsi = sys.run_simulation()
+        
+        results_sinr_M[f'ECSI - M={M}'] = s_ecsi
+        results_sinr_M[f'PCSI - M={M}'] = s_pcsi
+        
+        results_rate_M[f'ECSI - M={M}'] = r_ecsi
+        results_rate_M[f'PCSI - M={M}'] = r_pcsi
+
+    # Plot SINR
+    plot_ecdf(results_sinr_M, 
+              f'CDF da SINR (K={K_fixo})', 
+              'SINR (dB)', 
+              'fig4_sinr.png',
+              xlim=(-10, 30))
+
+    # Plot Taxa Alcançável
+    plot_ecdf(results_rate_M, 
+              f'CDF da Taxa Alcançável (K={K_fixo})', 
+              'Taxa Alcançável (Mbits/s)', 
+              'fig5_rate.png',
+              xlim=(0, 150))
+
+    # ==========================================
+    # CENÁRIO 2: Variando K (Figuras 6 e 7)
+    # Fixar M=100
+    # ==========================================
+    M_fixo = 100
+    K_values = [10, 20, 30]
+
+    results_sinr_K = {}
+    results_rate_K = {}
+
+    print("\n--- Iniciando Cenário 2: Variando K ---")
+    for K in K_values:
+        sys = CellFreeSystem(M=M_fixo, K=K)
+        s_ecsi, s_pcsi, r_ecsi, r_pcsi = sys.run_simulation()
+        
+        results_sinr_K[f'ECSI - K={K}'] = s_ecsi
+        results_sinr_K[f'PCSI - K={K}'] = s_pcsi
+        
+        results_rate_K[f'ECSI - K={K}'] = r_ecsi
+        results_rate_K[f'PCSI - K={K}'] = r_pcsi
+
+    # Plot SINR
+    plot_ecdf(results_sinr_K, 
+              f'CDF da SINR (M={M_fixo})', 
+              'SINR (dB)', 
+              'fig6_sinr.png',
+              xlim=(-10, 30))
+
+    # Plot Taxa Alcançável
+    plot_ecdf(results_rate_K, 
+              f'CDF da Taxa Alcançável (M={M_fixo})', 
+              'Taxa Alcançável (Mbits/s)',
+              'fig7_rate.png',
+              xlim=(0, 150))
+
+    print("Simulação Finalizada! Verifique os arquivos PNG gerados.")
